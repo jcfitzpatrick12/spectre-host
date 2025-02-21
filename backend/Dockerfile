@@ -13,15 +13,58 @@ ARG DEBIAN_FRONTEND=noninteractive
 # By default, use `tmp` as the working directory for each stage.
 WORKDIR /tmp
 
-# Update and upgrade the package index.
-# Additionally, install dependencies which are both required for all
-# the build stages, and will be present in the final runtime image.
+# Install the dependencies to install GNU Radio with UHD from source. Adapted from: 
+# - https://wiki.gnuradio.org/index.php?title=UbuntuInstall#Install_Dependencies
+# - https://wiki.gnuradio.org/index.php?title=LinuxInstall#Distributions_and_Commands
+# - https://wiki.gnuradio.org/index.php?title=Draft-AN-445#Building_and_installing_UHD_from_source_code 
 RUN apt-get update -y && \
     apt-get upgrade -y && \
     apt-get install -y \
-    gnuradio \
-    libudev-dev \
-    libusb-1.0-0
+    libudev-dev libusb-1.0-0 git cmake g++ libboost-all-dev libgmp-dev swig python3-numpy \
+    python3-mako python3-sphinx python3-lxml doxygen libfftw3-dev \
+    libsdl1.2-dev libgsl-dev libqwt-qt5-dev libqt5opengl5-dev python3-pyqt5 \
+    liblog4cpp5-dev libzmq3-dev python3-yaml python3-click python3-click-plugins \
+    python3-zmq python3-scipy python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+    libcodec2-dev libgsm1-dev libusb-1.0-0 libusb-1.0-0-dev libudev-dev python3-setuptools \
+    pybind11-dev python3-matplotlib libsndfile1-dev \
+    libsoapysdr-dev soapysdr-tools python3-pygccxml python3-pyqtgraph \
+    libiio-dev libad9361-dev libspdlog-dev python3-packaging python3-jsonschema python3-qtpy
+
+# First install UHD from source. 
+RUN git clone https://github.com/EttusResearch/uhd.git && \
+    cd uhd && \
+    git checkout v4.6.0.0 && \
+    cd host && \
+    mkdir build && \ 
+    cd build && \ 
+    cmake -DCMAKE_INSTALL_PREFIX=/usr/local ../ && \
+    make -j3 && \
+    make test && \
+    make install && \
+    ldconfig && \
+    uhd_images_downloader
+
+# Install volk from source
+RUN git clone --recursive https://github.com/gnuradio/volk.git && \
+    cd volk && \
+    mkdir build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=/usr/bin/python3 ../ && \
+    make && \
+    make test && \
+    make install && \
+    ldconfig
+
+# Install GNU Radio from sourcd
+RUN git clone https://github.com/jcfitzpatrick12/gnuradio.git && \ 
+    cd gnuradio && \
+    mkdir build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=/usr/bin/python3 ../ && \
+    make -j3 && \
+    make && \ 
+    make install && \
+    ldconfig
 
 # --------------------------------- # 
 # Installing GNU Radio OOT modules
@@ -31,8 +74,6 @@ FROM base AS gnuradio_oot_modules
 # Install OOT module build dependencies.
 RUN apt-get install -y \
     sudo \
-    git \
-    cmake \
     wget \
     expect 
 
@@ -80,11 +121,6 @@ WORKDIR /app
 # Define the spectre data directory path as an environment variable inside the container
 ENV SPECTRE_DATA_DIR_PATH="/app/.spectre-data"
 
-# Install the USRP Hardware driver
-RUN apt-get install -y \
-    uhd-host && \
-    /usr/lib/uhd/utils/uhd_images_downloader.py
-
 # Copy in the udev rules
 COPY --from=gnuradio_oot_modules /etc/udev/rules.d /etc/udev/rules.d
 COPY --from=gnuradio_oot_modules /lib/udev/rules.d /lib/udev/rules.d
@@ -120,22 +156,15 @@ ENV NO_AT_BRIDGE=1
 
 RUN apt-get install -y \
     # Install development tools.
-    git \
-    python3-pip \
-    vim \
-    tmux \
-    # lbgtk-3-dev and x11-apps are required for the gnuradio GUI to run inside the container
-    libgtk-3-dev \
-    x11-apps \
-    # libcanberra packages are installed to subdue some warnings flagged on starting gnuradio-companion
-    libcanberra-gtk-module \
-    libcanberra-gtk3-module \
-    # dbus x11 stops a warning when "opening from file" in gnuradio
+    python3-pip vim tmux \
+    # Required for the gnuradio GUI to run inside the container
+    libgtk-3-dev x11-apps \
+    # Required to subdue some warnings flagged on starting gnuradio-companion
+    libcanberra-gtk-module libcanberra-gtk3-module \
+    # Stop a warning when "opening from file" in gnuradio
     dbus-x11 && \
     # Upgrade packages for building and distributing `spectre-core`.
-    pip install --upgrade \
-    build \
-    twine
+    pip install --upgrade build twine
 
 # Clone then install the latest `spectre` and `spectre-core` code, ready for development.
 COPY --chmod=0755 ./scripts/install_spectre_latest.sh ./install_spectre_latest.sh 

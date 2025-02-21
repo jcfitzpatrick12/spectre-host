@@ -28,5 +28,5 @@ build_from_repo() {
     sudo make install
 
     # Run the file fix
-    file_fix
+    # file_fix
 }
